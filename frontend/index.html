@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>투자거울 (Investment Mirror) — AI 복기 비서</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Cold Start Alert Banner (for Render free tier) -->
+  <div id="cold-start-banner" class="cold-start-banner" style="display:none;"></div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-icon">🪞</div>
+      <div class="logo-text">
+        <h1 class="brand-title">투자거울</h1>
+        <span class="brand-tagline">내 매매를 시장에 비춰 보는 AI 복기 비서</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-indicator" title="서버 연결 상태">
+        <span class="status-dot"></span>
+        <span class="status-text">온라인</span>
+      </div>
+      <button id="btn-header-theme" class="btn-theme-toggle" title="다크/라이트 테마 전환">
+        🌙
+      </button>
+    </div>
+  </header>
+
+  <!-- Navigation Bar (Tabs) -->
+  <nav class="nav-bar">
+    <button class="nav-tab active" data-tab="chat">💬 AI 채팅</button>
+    <button class="nav-tab" data-tab="graph">📈 투자거울 그래프</button>
+    <button class="nav-tab" data-tab="review">🔍 복기할 매매</button>
+    <button class="nav-tab" data-tab="data">📋 데이터 관리</button>
+    <button class="nav-tab" data-tab="history">🕒 대화 기록</button>
+    <button class="nav-tab" data-tab="settings">⚙️ 설정</button>
+  </nav>
+
+  <!-- Main View Area -->
+  <main class="main-content">
+    <div id="tab-content" class="tab-content">
+      <!-- Active Component renders here -->
+    </div>
+  </main>
+
+  <!-- Core Scripts -->
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="api.js"></script>
+  <script src="auth.js"></script>
+
+  <!-- View Components -->
+  <script src="components/chat.js"></script>
+  <script src="components/graph.js"></script>
+  <script src="components/review.js"></script>
+  <script src="components/data.js"></script>
+  <script src="components/history.js"></script>
+  <script src="components/settings.js"></script>
+
+  <!-- App Bootstrap -->
+  <script src="main.js"></script>
+</body>
+</html>

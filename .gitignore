@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# Environment Variables & Secrets
+.env
+*.pem
+service_account.json
+firebase_credentials.json
+
+# Local Mock Database & Logs
+.local_db/
+*.log
+
+# Pytest / Test Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
