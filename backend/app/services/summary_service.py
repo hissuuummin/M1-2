@@ -77,6 +77,9 @@ def calculate_data_summary(records: List[Dict[str, Any]]) -> SummaryResponse:
         prev_vals = values[:n - window]
         avg_recent = round(sum(recent_vals) / window, 2)
         avg_prev = round(sum(prev_vals) / len(prev_vals), 2) if prev_vals else avg_recent
+    elif n == 1:
+        # 데이터가 하루뿐이면 비교할 구간이 없음
+        avg_recent = avg_prev = round(values[0], 2)
     else:
         half = max(1, n // 2)
         prev_vals = values[:half]

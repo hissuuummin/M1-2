@@ -1,6 +1,6 @@
 /**
  * 투자거울: 백엔드 API 클라이언트 (api.js)
- * 모든 요청에 인증 토큰(Firebase ID 토큰 또는 dev-token)을 자동으로 첨부합니다.
+ * 모든 요청 직전에 인증 토큰(Firebase ID 토큰 또는 로컬 개발용 dev-token)을 받아 첨부합니다.
  */
 
 const Api = {
@@ -8,9 +8,9 @@ const Api = {
     return window.API_BASE_URL || '/api';
   },
 
-  getHeaders(isMultipart = false) {
+  async getHeaders(isMultipart = false) {
     const headers = {};
-    const token = window.store.getState().token;
+    const token = window.Auth ? await window.Auth.getToken() : null;
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
@@ -26,7 +26,7 @@ const Api = {
     const config = {
       ...options,
       headers: {
-        ...this.getHeaders(isMultipart),
+        ...(await this.getHeaders(isMultipart)),
         ...(options.headers || {})
       }
     };
@@ -34,15 +34,22 @@ const Api = {
     try {
       const res = await fetch(url, config);
 
-      if (res.status === 401) {
-        console.warn("401 Unauthorized received");
+      if (res.status === 401 && endpoint !== '/health') {
+        // 로그인이 만료되었거나 없음 → 로그인 화면으로
+        window.store.setState({ isLoggedIn: false });
+        if (window.Main && window.Main.showLogin) window.Main.showLogin('로그인이 필요해요.');
       }
 
       if (!res.ok) {
         let errMsg = `요청 실패 (HTTP ${res.status})`;
         try {
           const errData = await res.json();
-          errMsg = errData.detail || errMsg;
+          if (Array.isArray(errData.detail)) {
+            // Pydantic 검증 오류 목록
+            errMsg = errData.detail.map((d) => d.msg || JSON.stringify(d)).join(' / ');
+          } else if (errData.detail) {
+            errMsg = errData.detail;
+          }
         } catch (_) {}
         const err = new Error(errMsg);
         err.status = res.status;
@@ -193,8 +200,18 @@ const Api = {
     });
   },
 
-  getExportUrl(format = 'csv') {
-    return `${this.getBaseUrl()}/data/export?format=${format}`;
+  /** 인증 헤더가 필요해서 링크 대신 fetch로 받아 저장합니다. */
+  async downloadExport(format = 'csv') {
+    const blob = await this.request(`/data/export?format=${format}`, { method: 'GET' });
+    const data = blob instanceof Blob ? blob : new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `investment_mirror_data.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 };
 

@@ -6,14 +6,20 @@
 const GraphComponent = {
   render(container) {
     const state = window.store.getState();
-    const stocks = [
-      { name: "삼성전자", code: "005930" },
-      { name: "SK하이닉스", code: "000660" },
-      { name: "NAVER", code: "035420" },
-      { name: "카카오", code: "035720" },
-      { name: "현대차", code: "005380" },
-      { name: "셀트리온", code: "068270" }
-    ];
+    const esc = window.escapeHtml;
+    // 내가 실제로 거래한 종목 목록 (없으면 삼성전자를 기본으로)
+    const seen = new Map();
+    (state.records || []).forEach((r) => (r.trades || []).forEach((t) => {
+      if (t.code && !seen.has(t.code)) seen.set(t.code, t.name || t.code);
+    }));
+    if (!seen.size) seen.set('005930', '삼성전자');
+    const stocks = [...seen.entries()].map(([code, name]) => ({ code, name }));
+    if (!state.selectedStockCode || !seen.has(state.selectedStockCode)) {
+      if (!/^\d{6}$/.test(state.selectedStockCode || '')) {
+        window.store.setState({ selectedStockCode: stocks[0].code });
+      }
+    }
+    const selected = window.store.getState().selectedStockCode;
 
     container.innerHTML = `
       <div class="graph-container">
@@ -23,14 +29,15 @@ const GraphComponent = {
             <p class="graph-subtitle">기간 첫 거래일을 100으로 정규화하여 시장(코스피)과 종목의 흐름 위에 내 매매 위치를 비춰 봅니다.</p>
           </div>
           <div class="graph-controls">
-            <label for="select-stock">종목 선택:</label>
+            <label for="select-stock">내가 거래한 종목:</label>
             <select id="select-stock" class="select-input">
               ${stocks.map(s => `
-                <option value="${s.code}" ${s.code === state.selectedStockCode ? 'selected' : ''}>
-                  ${s.name} (${s.code})
+                <option value="${esc(s.code)}" ${s.code === selected ? 'selected' : ''}>
+                  ${esc(s.name)} (${esc(s.code)})
                 </option>
               `).join('')}
             </select>
+            <input id="input-stock-code" class="select-input" inputmode="numeric" maxlength="6" placeholder="다른 종목코드" style="width:120px" />
             <button id="btn-refresh-graph" class="btn-outline btn-sm">다시 그리기</button>
           </div>
         </div>
@@ -38,6 +45,7 @@ const GraphComponent = {
         <!-- Canvas Chart Area -->
         <div class="canvas-wrapper">
           <canvas id="mirror-canvas" width="860" height="420"></canvas>
+          <div id="graph-status" class="graph-status" style="display:none;"></div>
           <div id="chart-tooltip" class="chart-tooltip" style="display:none;"></div>
         </div>
 
@@ -70,6 +78,14 @@ const GraphComponent = {
     });
 
     refreshBtn.addEventListener('click', () => {
+      const typed = container.querySelector('#input-stock-code').value.trim();
+      if (typed) {
+        if (!/^\d{6}$/.test(typed)) {
+          alert('종목코드는 6자리 숫자로 입력해 주세요.');
+          return;
+        }
+        window.store.setState({ selectedStockCode: typed });
+      }
       this.loadAndDrawChart();
     });
   },
@@ -78,12 +94,21 @@ const GraphComponent = {
     const state = window.store.getState();
     const code = state.selectedStockCode || '005930';
 
+    const statusEl = document.getElementById('graph-status');
+    if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '가격 데이터를 불러오는 중...'; }
     try {
       const data = await window.Api.getStockPrices(code);
       window.store.setState({ stockGraphData: data });
+      if (statusEl) statusEl.style.display = 'none';
       this.drawCanvas(data);
     } catch (err) {
       console.error("Failed to load stock graph data:", err);
+      const canvas = document.getElementById('mirror-canvas');
+      if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.textContent = `그래프를 그리지 못했어요: ${err.message}`;
+      }
     }
   },
 
@@ -216,8 +241,9 @@ const GraphComponent = {
     // Add click handler on canvas
     canvas.onclick = (e) => {
       const rect = canvas.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
+      // 화면에 줄어들어 보이는 캔버스(모바일 등)에서도 클릭 위치가 맞도록 비율 보정
+      const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
       let matched = null;
       for (const pt of this.tradePoints) {
@@ -235,8 +261,8 @@ const GraphComponent = {
         infoBox.innerHTML = `
           <div class="active-trade-box">
             <span class="badge ${t.side === 'buy' ? 'badge-buy' : 'badge-sell'}">${sideKr}</span>
-            <strong>${matched.date}</strong> ${t.name} ${t.qty}주 @ ${Number(t.price).toLocaleString()}원
-            · <em>이유: ${t.reason || '미기재'} (${t.reason_timing || '당시 기록'})</em>
+            <strong>${window.escapeHtml(matched.date)}</strong> ${window.escapeHtml(t.name)} ${Number(t.qty)}주 @ ${Number(t.price).toLocaleString()}원
+            · <em>이유: ${t.reason ? window.escapeHtml(t.reason) : '미기재'}${t.reason_timing ? ` (${window.escapeHtml(t.reason_timing)})` : ''}</em>
           </div>
         `;
       }

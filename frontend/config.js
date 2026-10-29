@@ -1,28 +1,11 @@
-// Runtime API Configuration
-// Vercel deployment injects API_BASE_URL or defaults to localhost for development
+// 로컬 개발용 설정. 배포(Vercel)에서는 scripts/build-config.js가 환경 변수로 이 파일을 다시 만듭니다.
+// 백엔드가 프론트도 함께 내려주는 경우(python start.py)에는 같은 주소의 /api 를 씁니다.
 if (typeof window.API_BASE_URL === 'undefined') {
-  const isLocal =
-    !window.location.hostname ||
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1' ||
-    window.location.protocol === 'file:';
-
-  if (isLocal) {
-    window.API_BASE_URL = 'http://127.0.0.1:8000/api';
-  } else {
-    // Production Render Backend URL fallback
-    window.API_BASE_URL = 'https://investment-mirror-backend.onrender.com/api';
-  }
+  const servedByBackend = window.location.port === '8000';
+  window.API_BASE_URL = servedByBackend ? '/api' : 'http://127.0.0.1:8000/api';
 }
 
-// Optional Firebase Web Config for client Google Login
+// Firebase 웹 앱 설정 (로컬에서 구글 로그인까지 시험할 때만 채우세요. DEV_MODE=true면 비워 둬도 됩니다)
 if (typeof window.FIREBASE_WEB_CONFIG === 'undefined') {
-  window.FIREBASE_WEB_CONFIG = {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: ""
-  };
+  window.FIREBASE_WEB_CONFIG = {};
 }

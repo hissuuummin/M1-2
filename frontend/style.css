@@ -1024,3 +1024,66 @@ body {
     max-width: 92%;
   }
 }
+
+
+/* ---- 로그인 화면 ---- */
+.login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+  padding: 16px;
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 32px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.login-desc,
+.login-message {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.login-message:empty { display: none; }
+
+/* ---- AI 미연결 표시, 기록 카드 경고, 그래프 상태 ---- */
+.offline-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--accent-warning);
+  border: 1px solid var(--accent-warning);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-bottom: 6px;
+}
+.pending-warn {
+  margin: 8px 0;
+  font-size: 0.82rem;
+  color: var(--accent-warning);
+  line-height: 1.5;
+}
+.graph-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+.canvas-wrapper { position: relative; }

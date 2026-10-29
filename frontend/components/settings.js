@@ -33,7 +33,8 @@ const SettingsComponent = {
           <div class="setting-row">
             <div>
               <strong>백엔드 API URL</strong>
-              <p class="setting-desc">${window.Api.getBaseUrl()}</p>
+              <p class="setting-desc">${window.escapeHtml(window.Api.getBaseUrl())}</p>
+              <p class="setting-desc">AI 연결: ${state.aiEnabled ? '사용 가능' : '미설정 (OPENAI_API_KEY 필요)'}</p>
             </div>
             <span class="status-badge ${state.serverStatus === 'online' ? 'status-online' : 'status-waking'}">
               ${state.serverStatus === 'online' ? '연결됨 (Online)' : '서버 확인 중...'}
@@ -46,7 +47,7 @@ const SettingsComponent = {
           <div class="setting-row">
             <div>
               <strong>로그인된 계정</strong>
-              <p class="setting-desc">${state.user ? state.user.email : '로그인되지 않음'}</p>
+              <p class="setting-desc">${state.user ? window.escapeHtml(state.user.email) : '로그인되지 않음'}</p>
             </div>
             <button id="btn-logout" class="btn-outline btn-danger btn-sm">
               로그아웃
@@ -72,10 +73,15 @@ const SettingsComponent = {
 
     const logoutBtn = container.querySelector('#btn-logout');
     if (logoutBtn) {
-      logoutBtn.addEventListener('click', () => {
-        window.Auth.logout();
-        alert('로그아웃되었습니다.');
-        window.Main.switchTab('chat');
+      logoutBtn.addEventListener('click', async () => {
+        await window.Auth.logout();
+        if (window.store.getState().authMode === 'dev') {
+          alert('로컬 개발 모드(DEV_MODE)에서는 로그아웃해도 바로 다시 사용할 수 있어요.');
+          window.location.reload();
+          return;
+        }
+        window.store.setState({ messages: [], records: [], summary: null, pendingTrades: [], pendingReviews: [] });
+        window.Main.showLogin('로그아웃했어요.');
       });
     }
   }

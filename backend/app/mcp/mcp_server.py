@@ -33,7 +33,7 @@ TOOLS = [
     },
     {
         "name": "get_stock_change",
-        "description": "특정 종목과 코스피의 등락률을 비교하고 차이가 2%p 이상이면 공시와 뉴스를 함께 조회합니다.",
+        "description": "특정 종목과 코스피의 등락률을 비교하고, 차이가 조사 기준(기본 2%p) 이상이면 그날 범위의 공시와 뉴스를 함께 조회합니다.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -77,16 +77,14 @@ async def handle_tool_call(name: str, arguments: Dict[str, Any]) -> Any:
         return summary.model_dump()
 
     elif name == "get_stock_change":
-        name_or_code = arguments.get("name_or_code", "삼성전자")
-        dt = arguments.get("date")
-        change_info = MarketService.get_stock_change(name_or_code, dt)
-        if change_info.get("is_significant"):
-            news = await NewsService.search_news_and_disclosures(
+        change_info = MarketService.get_stock_change(arguments.get("name_or_code", ""), arguments.get("date"))
+        if change_info.get("is_significant") and not change_info.get("error"):
+            change_info["news_and_disclosures"] = await NewsService.search_news_and_disclosures(
                 stock_name=change_info["stock_name"],
                 stock_code=change_info["stock_code"],
-                target_date=change_info["date"]
+                base_date=change_info["date"],
+                prev_date=change_info["prev_date"],
             )
-            change_info["news_and_disclosures"] = news
         return change_info
 
     elif name == "get_data_statistics":
@@ -94,10 +92,14 @@ async def handle_tool_call(name: str, arguments: Dict[str, Any]) -> Any:
         return stats.model_dump()
 
     elif name == "record_trade":
+        from app.services.ai_service import AIService
+        candidate, missing = AIService._build_trade_candidate(arguments)
+        if missing:
+            return {"status": "need_more_info", "missing": missing}
         return {
             "status": "candidate_created",
-            "details": arguments,
-            "message": "매매 후보가 생성되었습니다. 투자거울 웹 화면에서 확인 후 등록할 수 있습니다."
+            "trade": candidate,
+            "message": "매매 후보만 만들었어요. 저장은 투자거울 웹 화면에서 확인 후 할 수 있어요."
         }
 
     raise ValueError(f"Unknown tool: {name}")
@@ -114,6 +116,10 @@ async def run_stdio_server():
             req_id = req.get("id")
             method = req.get("method")
             params = req.get("params", {})
+
+            # id가 없는 요청은 알림(notification)이라 응답하지 않습니다. (예: notifications/initialized)
+            if req_id is None:
+                continue
 
             if method == "initialize":
                 res = {
@@ -134,12 +140,18 @@ async def run_stdio_server():
             elif method == "tools/call":
                 tool_name = params.get("name")
                 tool_args = params.get("arguments", {})
-                content = await handle_tool_call(tool_name, tool_args)
+                try:
+                    content = await handle_tool_call(tool_name, tool_args)
+                    is_error = False
+                except Exception as tool_err:
+                    content = {"error": str(tool_err)}
+                    is_error = True
                 res = {
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
-                        "content": [{"type": "text", "text": json.dumps(content, ensure_ascii=False, indent=2)}]
+                        "content": [{"type": "text", "text": json.dumps(content, ensure_ascii=False, indent=2, default=str)}],
+                        "isError": is_error
                     }
                 }
             else:

@@ -58,3 +58,10 @@ def test_calculate_data_statistics():
     assert stats.count == 3
     assert "2024-01" in stats.monthly_kospi_returns
     assert stats.volatility_daily >= 0.0
+
+
+def test_summary_with_single_record_does_not_crash():
+    res = calculate_data_summary([{"date": "2024-01-02", "value": 2550.0, "trades": []}])
+    assert res.count == 1
+    assert res.trend.label == "횡보"
+    assert res.trend.avg_diff == 0.0

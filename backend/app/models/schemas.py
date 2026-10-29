@@ -3,14 +3,18 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
+REASON_CHOICES = ("성장성", "시장 흐름", "가격 하락", "뉴스·이슈", "기타")
+
+
 class TradeItem(BaseModel):
     id: str = Field(description="고유 거래 ID")
+    date: Optional[str] = Field(default=None, description="거래일 (조회 응답에서만 채워짐)")
     side: Literal["buy", "sell"] = Field(description="매수(buy) 또는 매도(sell)")
     name: str = Field(min_length=1, max_length=30, description="종목명 (예: 삼성전자)")
     code: str = Field(description="6자리 종목 코드 (예: 005930)")
     qty: int = Field(gt=0, description="매매 수량 (양의 정수)")
     price: float = Field(gt=0, description="매매 단가 (양의 실수)")
-    broker: Optional[str] = Field(default="키움", description="증권사 (키움, 신한 등)")
+    broker: Optional[str] = Field(default=None, description="증권사 (키움, 신한 등)")
     reason: Optional[str] = Field(
         default=None,
         description="매매 이유 (성장성, 시장 흐름, 가격 하락, 뉴스·이슈, 기타)"
@@ -18,8 +22,8 @@ class TradeItem(BaseModel):
     reason_note: Optional[str] = Field(default=None, max_length=100, description="상세 메모")
     reason_recorded_at: Optional[str] = Field(default=None, description="이유 기록 시각")
     reason_timing: Optional[Literal["당시 기록", "이후 회상"]] = Field(
-        default="당시 기록",
-        description="당시 기록 또는 이후 회상"
+        default=None,
+        description="이유를 남긴 시각이 거래일 당일이면 '당시 기록', 아니면 '이후 회상' (서버가 자동 판단)"
     )
     review_7d_done: bool = Field(default=False, description="7일 복기 완료 여부")
     review_30d_done: bool = Field(default=False, description="30일 복기 완료 여부")
@@ -38,21 +42,31 @@ class TradeItem(BaseModel):
 
 
 class TradeCreate(BaseModel):
-    id: Optional[str] = Field(default=None, description="서버 또는 클라이언트 거래 ID")
+    id: Optional[str] = Field(
+        default=None, pattern=r"^[A-Za-z0-9_-]{1,40}$", description="서버가 만든 거래 ID (중복 저장 방지용)"
+    )
     side: Literal["buy", "sell"] = Field(description="buy 또는 sell")
     name: str = Field(min_length=1, max_length=30)
-    code: str = Field(description="6자리 종목코드")
+    code: Optional[str] = Field(default=None, description="6자리 종목코드 (비우면 종목명으로 찾음)")
     qty: int = Field(gt=0, description="수량")
     price: float = Field(gt=0, description="단가")
-    broker: Optional[str] = "키움"
+    broker: Optional[str] = None
     reason: Optional[str] = None
     reason_note: Optional[str] = Field(default=None, max_length=100)
-    reason_timing: Optional[Literal["당시 기록", "이후 회상"]] = "당시 기록"
     source: Optional[Literal["chat", "file", "capture", "manual"]] = "manual"
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in REASON_CHOICES:
+            raise ValueError(f"매매 이유는 {', '.join(REASON_CHOICES)} 중 하나여야 합니다.")
+        return v
 
     @field_validator("code")
     @classmethod
-    def validate_code(cls, v: str) -> str:
+    def validate_code(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not str(v).strip():
+            return None
         clean = v.strip().zfill(6)
         if not clean.isdigit() or len(clean) != 6:
             raise ValueError("종목 코드는 6자리 숫자여야 합니다.")
@@ -68,9 +82,25 @@ class TradeUpdate(BaseModel):
     broker: Optional[str] = None
     reason: Optional[str] = None
     reason_note: Optional[str] = Field(default=None, max_length=100)
-    reason_timing: Optional[Literal["당시 기록", "이후 회상"]] = None
     review_7d_done: Optional[bool] = None
     review_30d_done: Optional[bool] = None
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in REASON_CHOICES:
+            raise ValueError(f"매매 이유는 {', '.join(REASON_CHOICES)} 중 하나여야 합니다.")
+        return v
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        clean = v.strip().zfill(6)
+        if not clean.isdigit() or len(clean) != 6:
+            raise ValueError("종목 코드는 6자리 숫자여야 합니다.")
+        return clean
 
 
 class DataCreate(BaseModel):
@@ -193,6 +223,8 @@ class ChatResponse(BaseModel):
     conversation_id: str
     pending_trades: List[Dict[str, Any]] = []
     sources: List[Dict[str, Any]] = []
+    # "ai": GPT가 답함 / "offline": AI 연결이 안 돼 저장된 요약만 보여 줌
+    mode: Literal["ai", "offline"] = "ai"
 
 
 class PendingReviewItem(BaseModel):
@@ -204,11 +236,16 @@ class PendingReviewItem(BaseModel):
     qty: int
     price: float
     reason: Optional[str]
+    reason_timing: Optional[str] = None
     days_passed: int
     review_type: Literal["7d", "30d"]
     kospi_then: float
     kospi_now: float
     kospi_change: float
+    # 종목 가격은 조회에 실패하면 None (지어내지 않음)
+    stock_now: Optional[float] = None
+    stock_now_date: Optional[str] = None
+    stock_change_vs_price: Optional[float] = None
     suggested_question: str
 
 

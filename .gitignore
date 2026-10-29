@@ -11,6 +11,8 @@ ENV/
 
 # Environment Variables & Secrets
 .env
+.env.*
+!.env.example
 *.pem
 service_account.json
 firebase_credentials.json
@@ -29,3 +31,7 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# local setup log
+setup_log.log
+push_log.log

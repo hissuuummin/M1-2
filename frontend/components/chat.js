@@ -87,7 +87,7 @@ const ChatComponent = {
           <span class="badge">코스피 시장 요약</span>
           <span class="period">${summary.period} (${summary.count}영업일)</span>
         </div>
-        <div class="summary-trend ${trendClass}">
+        <div class="summary-trend ${trendClass}" title="최근 20일 평균 ${t.avg_recent} / 직전 20일 평균 ${t.avg_prev} · 단순 분류이며 예측이 아니에요">
           ${t.label} (${t.avg_diff > 0 ? '+' : ''}${t.avg_diff}%)
         </div>
       </div>
@@ -146,10 +146,14 @@ const ChatComponent = {
       const isUser = m.role === 'user';
       const formattedContent = this.formatMarkdown(m.content);
       const sourcesHtml = m.sources && m.sources.length > 0 ? this.renderSources(m.sources) : '';
+      const offlineBadge = m.mode === 'offline'
+        ? '<div class="offline-badge" title="AI가 아니라 저장된 요약만 보여 준 답변이에요">⚠️ AI 미연결 · 저장된 요약만 표시</div>'
+        : '';
 
       return `
         <div class="message-row ${isUser ? 'user-row' : 'assistant-row'}">
           <div class="message-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}">
+            ${offlineBadge}
             <div class="message-text">${formattedContent}</div>
             ${sourcesHtml}
           </div>
@@ -159,11 +163,12 @@ const ChatComponent = {
   },
 
   renderSources(sources) {
+    const esc = window.escapeHtml;
     const items = sources.map((s) => `
       <li class="source-item">
-        <a href="${s.link}" target="_blank" rel="noopener noreferrer">
-          <span class="source-badge">[${s.source || '참고자료'}]</span> ${s.title}
-          ${s.pub_date ? `<span class="source-date">(${s.pub_date})</span>` : ''}
+        <a href="${esc(window.safeUrl(s.link))}" target="_blank" rel="noopener noreferrer">
+          <span class="source-badge">[${esc(s.source || '참고자료')}]</span> ${esc(s.title)}
+          ${s.pub_date ? `<span class="source-date">(${esc(s.pub_date)})</span>` : ''}
         </a>
       </li>
     `).join('');
@@ -179,16 +184,23 @@ const ChatComponent = {
   renderPendingTrades(pendingTrades) {
     if (!pendingTrades || pendingTrades.length === 0) return '';
 
-    return pendingTrades.map((t, idx) => `
+    const esc = window.escapeHtml;
+    return pendingTrades.map((t, idx) => {
+      const checks = t.needs_check || [];
+      const warn = [];
+      if (checks.includes('date')) warn.push('날짜를 캡처에서 읽지 못해 오늘로 넣었어요. 맞는지 확인해 주세요.');
+      if (checks.includes('code') || !t.code) warn.push('종목코드를 찾지 못했어요. 데이터 관리 탭에서 코드와 함께 직접 입력해 주세요.');
+      return `
       <div class="pending-trade-card" data-index="${idx}">
         <div class="card-title">
-          <span>📝 매매 기록 확인 (${t.date})</span>
+          <span>📝 매매 기록 확인 (${esc(t.date)})</span>
           <button class="btn-close" onclick="window.ChatComponent.discardPendingTrade(${idx})">&times;</button>
         </div>
         <div class="trade-details">
           <span class="trade-side ${t.side === 'buy' ? 'side-buy' : 'side-sell'}">${t.side === 'buy' ? '매수' : '매도'}</span>
-          <strong>${t.name}</strong> (${t.code}) ${t.qty}주 @ ${Number(t.price).toLocaleString()}원
+          <strong>${esc(t.name)}</strong> (${esc(t.code || '코드 확인 필요')}) ${Number(t.qty)}주 @ ${Number(t.price).toLocaleString()}원
         </div>
+        ${warn.length ? `<div class="pending-warn">${warn.map(esc).join('<br/>')}</div>` : ''}
         <div class="reason-section">
           <label>매매 이유 선택 (복기에 활용됩니다):</label>
           <div class="reason-chips">
@@ -199,12 +211,13 @@ const ChatComponent = {
           </div>
         </div>
         <div class="card-actions">
-          <button class="btn-primary btn-sm" onclick="window.ChatComponent.savePendingTrade(${idx})">
+          <button class="btn-primary btn-sm" onclick="window.ChatComponent.savePendingTrade(${idx})" ${t.code ? '' : 'disabled'}>
             기록 저장하기
           </button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   },
 
   renderLoadingIndicator() {
@@ -278,8 +291,9 @@ const ChatComponent = {
   selectReason(idx, reason) {
     const trades = [...window.store.getState().pendingTrades];
     if (trades[idx]) {
-      trades[idx].reason = reason;
+      trades[idx].reason = trades[idx].reason === reason ? null : reason;
       window.store.setState({ pendingTrades: trades });
+      window.Main.renderCurrentTab();
     }
   },
 
@@ -287,6 +301,7 @@ const ChatComponent = {
     const trades = [...window.store.getState().pendingTrades];
     trades.splice(idx, 1);
     window.store.setState({ pendingTrades: trades });
+    window.Main.renderCurrentTab();
   },
 
   async savePendingTrade(idx) {
@@ -302,15 +317,15 @@ const ChatComponent = {
         code: trade.code,
         qty: trade.qty,
         price: trade.price,
-        broker: trade.broker || '키움',
-        reason: trade.reason || '성장성',
-        reason_timing: '당시 기록',
-        source: 'chat'
+        broker: trade.broker || null,
+        // 이유를 고르지 않았으면 비워 둡니다 (임의로 채우지 않음)
+        reason: trade.reason || null,
+        source: trade.source || 'chat'
       });
 
       trades.splice(idx, 1);
       window.store.setState({ pendingTrades: trades });
-      alert(`✅ ${trade.name} ${trade.side === 'buy' ? '매수' : '매도'} 기록이 정상 저장되었습니다.`);
+      alert(`✅ ${trade.name} ${trade.side === 'buy' ? '매수' : '매도'} 기록을 저장했어요.`);
       window.Main.refreshData();
     } catch (err) {
       alert(`저장 실패: ${err.message}`);

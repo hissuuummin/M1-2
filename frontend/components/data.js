@@ -22,7 +22,7 @@ const DataComponent = {
             <button id="btn-sync-kospi" class="btn-outline btn-sm">🔄 최신 코스피 불러오기</button>
             <input type="file" id="file-import-input" accept=".csv,.xlsx,.xls" style="display:none;" />
             <button id="btn-import-file" class="btn-outline btn-sm">📂 거래내역 파일 올리기</button>
-            <a href="${window.Api.getExportUrl('csv')}" download="investment_mirror_data.csv" class="btn-outline btn-sm">📥 CSV 내보내기</a>
+            <button type="button" class="btn-outline btn-sm" onclick="window.Api.downloadExport('csv').catch((e) => alert('내보내기 실패: ' + e.message))">📥 CSV 내보내기</button>
           </div>
         </div>
 
@@ -105,6 +105,10 @@ const DataComponent = {
                 <label>종목명:</label>
                 <input type="text" id="trade-name-val" required class="form-input" placeholder="예: 삼성전자" />
               </div>
+              <div class="form-group">
+                <label>종목코드 (선택):</label>
+                <input type="text" id="trade-code-val" class="form-input" inputmode="numeric" maxlength="6" placeholder="비우면 종목명으로 찾아요" />
+              </div>
             </div>
             <div class="form-row">
               <div class="form-group">
@@ -119,6 +123,7 @@ const DataComponent = {
             <div class="form-group">
               <label>매매 이유:</label>
               <select id="trade-reason-val" class="form-input">
+                <option value="">선택 안 함</option>
                 <option value="성장성">성장성</option>
                 <option value="시장 흐름">시장 흐름</option>
                 <option value="가격 하락">가격 하락</option>
@@ -152,14 +157,14 @@ const DataComponent = {
         <tr class="date-row">
           <td><strong>${r.date}</strong></td>
           <td>${Number(r.value).toFixed(2)} pt</td>
-          <td>${r.memo || '<span class="text-muted">-</span>'}</td>
+          <td>${r.memo ? window.escapeHtml(r.memo) : '<span class="text-muted">-</span>'}</td>
           <td>
             <button class="btn-trade-toggle" onclick="window.DataComponent.toggleTrades('${r.date}')">
               ${tradeCount > 0 ? `매매 ${tradeCount}건 ${isExpanded ? '▲' : '▼'}` : '+ 매매 등록'}
             </button>
           </td>
           <td class="action-cell">
-            <button class="btn-icon-action" title="수정" onclick="window.DataComponent.editDatePrompt('${r.date}', ${r.value}, '${(r.memo || '').replace(/'/g, "\\'")}')">✏️</button>
+            <button class="btn-icon-action" title="수정" onclick="window.DataComponent.editDatePrompt('${r.date}')">✏️</button>
             <button class="btn-icon-action btn-danger" title="삭제" onclick="window.DataComponent.deleteDate('${r.date}')">🗑️</button>
           </td>
         </tr>
@@ -209,13 +214,13 @@ const DataComponent = {
           ${trades.map((t) => `
             <tr>
               <td><span class="pill-sm ${t.side === 'buy' ? 'side-buy' : 'side-sell'}">${t.side === 'buy' ? '매수' : '매도'}</span></td>
-              <td><strong>${t.name}</strong> (${t.code})</td>
-              <td>${t.qty}주</td>
+              <td><strong>${window.escapeHtml(t.name)}</strong> (${window.escapeHtml(t.code)})</td>
+              <td>${Number(t.qty)}주</td>
               <td>${Number(t.price).toLocaleString()}원</td>
-              <td>${t.reason || '미기재'}</td>
-              <td><span class="badge-timing">${t.reason_timing || '당시 기록'}</span></td>
+              <td>${t.reason ? window.escapeHtml(t.reason) : '미기재'}</td>
+              <td>${t.reason_timing ? `<span class="badge-timing">${window.escapeHtml(t.reason_timing)}</span>` : '<span class="text-muted">-</span>'}</td>
               <td>
-                <button class="btn-icon-action btn-danger" title="삭제" onclick="window.DataComponent.deleteTrade('${dateStr}', '${t.id}')">🗑️</button>
+                <button class="btn-icon-action btn-danger" title="삭제" onclick="window.DataComponent.deleteTrade('${dateStr}', '${window.escapeHtml(t.id)}')">🗑️</button>
               </td>
             </tr>
           `).join('')}
@@ -264,16 +269,17 @@ const DataComponent = {
         const qtyVal = parseInt(document.getElementById('trade-qty-val').value);
         const priceVal = parseFloat(document.getElementById('trade-price-val').value);
         const reasonVal = document.getElementById('trade-reason-val').value;
+        const codeVal = document.getElementById('trade-code-val').value.trim();
 
         try {
           await window.Api.addTrade(parentDate, {
             side: sideVal,
             name: nameVal,
-            code: "005930",
+            code: codeVal || null,
             qty: qtyVal,
             price: priceVal,
-            reason: reasonVal,
-            reason_timing: "당시 기록"
+            reason: reasonVal || null,
+            source: 'manual'
           });
           this.closeModal('modal-add-trade');
           alert('✅ 매매 내역이 성공적으로 추가되었습니다.');
@@ -354,11 +360,18 @@ const DataComponent = {
       const newTrades = candidates.filter(c => !c.is_already_saved);
       const dupCount = candidates.length - newTrades.length;
 
-      if (confirm(`총 ${candidates.length}건 중 신규 매매 ${newTrades.length}건을 등록하시겠습니까? (중복 제외: ${dupCount}건)`)) {
+      if (confirm(`총 ${candidates.length}건 중 신규 매매 ${newTrades.length}건을 등록하시겠습니까? (이미 저장된 매매 제외: ${dupCount}건)`)) {
+        let ok = 0;
+        const failed = [];
         for (const t of newTrades) {
-          await window.Api.addTrade(t.date, t);
+          try {
+            await window.Api.addTrade(t.date, t);
+            ok += 1;
+          } catch (e) {
+            failed.push(`${t.date} ${t.name}: ${e.message}`);
+          }
         }
-        alert(`✅ ${newTrades.length}건의 매매가 성공적으로 등록되었습니다.`);
+        alert(`✅ ${ok}건 등록${failed.length ? `\n⚠️ ${failed.length}건 실패\n${failed.slice(0, 5).join('\n')}` : ''}`);
         window.Main.refreshData();
       }
     } catch (err) {
@@ -394,7 +407,10 @@ const DataComponent = {
     if (modal) modal.style.display = 'none';
   },
 
-  async editDatePrompt(dateStr, currentVal, currentMemo) {
+  async editDatePrompt(dateStr) {
+    const rec = (window.store.getState().records || []).find((r) => r.date === dateStr) || {};
+    const currentVal = rec.value;
+    const currentMemo = rec.memo || '';
     const newValStr = prompt(`${dateStr} 코스피 종가 수정:`, currentVal);
     if (newValStr === null) return;
     const newVal = parseFloat(newValStr);

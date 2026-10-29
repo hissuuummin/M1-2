@@ -17,6 +17,7 @@ from app.models.schemas import (
 )
 from app.services.analytics_service import calculate_data_statistics
 from app.services.data_service import DataService
+from app.services.market_service import MarketDataError, MarketService
 from app.services.summary_service import calculate_data_summary
 
 router = APIRouter(prefix="/data", tags=["Data"])
@@ -107,32 +108,23 @@ def export_data(
 
 
 @router.post("/sync")
-def sync_market_data(current_user: dict = Depends(get_current_user)):
+def sync_market_data(
+    days: int = Query(30, ge=1, le=400, description="최근 며칠의 코스피 종가를 맞출지"),
+    current_user: dict = Depends(get_current_user)
+):
     """
-    최신 코스피 종가를 불러와 누락된 영업일 데이터를 보충합니다.
+    실제 코스피 종가를 불러와 빠진 거래일을 채우고, 자동으로 채운 값은 실제 종가로 고칩니다.
+    직접 입력하거나 수정한 값(manual)은 바꾸지 않습니다. 장 마감(15:30) 전인 오늘은 넣지 않습니다.
     """
-    records = DataService.get_all_records()
-    existing_dates = {r["date"] for r in records}
-
-    # Generate up to today if missing
-    today = datetime.now().date()
-    added_count = 0
-
-    # Fill last 5 days if missing and weekday
-    for i in range(5, -1, -1):
-        d = today - timedelta(days=i)
-        if d.weekday() < 5:  # Monday to Friday
-            d_str = d.strftime("%Y-%m-%d")
-            if d_str not in existing_dates:
-                # Add with realistic close
-                base_val = 2600.0 if not records else records[0]["value"]
-                DataService.create_record(
-                    DataCreate(date=d_str, value=round(base_val + (i * 2.5), 2), memo="코스피 종가 자동 동기화"),
-                    source="sync"
-                )
-                added_count += 1
-
-    return {"message": f"{added_count}개 일자의 코스피 데이터가 동기화되었습니다.", "synced_count": added_count}
+    try:
+        result = MarketService.sync_kospi(days_back=days)
+    except MarketDataError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    return {
+        "message": f"코스피 종가 {result['created']}일을 새로 넣고 {result['updated']}일을 실제 종가로 고쳤어요.",
+        "synced_count": result["created"],
+        "updated_count": result["updated"],
+    }
 
 
 @router.put("/{date_id}", response_model=DataResponse)

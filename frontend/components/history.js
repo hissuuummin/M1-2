@@ -29,7 +29,7 @@ const HistoryComponent = {
       this.renderList(container, list);
     } catch (err) {
       container.querySelector('#conversations-list-container').innerHTML = `
-        <div class="error-state">대화 목록을 불러오지 못했습니다: ${err.message}</div>
+        <div class="error-state">대화 목록을 불러오지 못했습니다: ${window.escapeHtml(err.message)}</div>
       `;
     }
   },
@@ -61,7 +61,7 @@ const HistoryComponent = {
             <span class="conv-date">${dt}</span>
             <span class="conv-count">메시지 ${c.message_count}개</span>
           </div>
-          <h4 class="conv-title">${c.title || '새 대화'}</h4>
+          <h4 class="conv-title">${window.escapeHtml(c.title || '새 대화')}</h4>
           <div class="conv-actions">
             <button class="btn-primary btn-sm" onclick="window.HistoryComponent.loadConversation('${c.id}')">
               불러오기

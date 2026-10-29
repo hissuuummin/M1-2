@@ -10,7 +10,7 @@ const ReviewComponent = {
         <div class="review-header">
           <h2>🔍 복기할 매매</h2>
           <p class="review-subtitle">
-            매매 후 7일과 30일이 지난 거래를 시장(코스피) 지수와 대조하며, 당시 나의 판단 원칙이 맞았는지 돌아봅니다.
+            매매 후 7일과 30일이 지난 거래를 시장(코스피) 흐름과 나란히 놓고, 당시 이유와 이후 변화를 비교해 봅니다. (결과로 잘잘못을 판정하지 않아요)
           </p>
         </div>
 
@@ -26,7 +26,7 @@ const ReviewComponent = {
       this.renderList(container, items);
     } catch (err) {
       container.querySelector('#review-cards-list').innerHTML = `
-        <div class="error-state">복기 목록을 불러오지 못했습니다: ${err.message}</div>
+        <div class="error-state">복기 목록을 불러오지 못했습니다: ${window.escapeHtml(err.message)}</div>
       `;
     }
   },
@@ -51,9 +51,13 @@ const ReviewComponent = {
       const isBuy = item.side === 'buy';
       const sideKr = isBuy ? '매수' : '매도';
       const changeClass = item.kospi_change > 0 ? 'trend-up' : item.kospi_change < 0 ? 'trend-down' : 'trend-neutral';
+      const esc = window.escapeHtml;
+      const hasStock = item.stock_change_vs_price !== null && item.stock_change_vs_price !== undefined;
+      const stockClass = !hasStock ? 'trend-neutral' : item.stock_change_vs_price > 0 ? 'trend-up' : item.stock_change_vs_price < 0 ? 'trend-down' : 'trend-neutral';
+      const reasonLabel = item.reason_timing === '이후 회상' ? '나중에 떠올려 적은 이유' : '당시 기록된 이유';
 
       return `
-        <div class="review-card" data-trade-id="${item.trade_id}">
+        <div class="review-card" data-trade-id="${esc(item.trade_id)}">
           <div class="review-card-header">
             <div class="review-badge ${item.review_type === '7d' ? 'badge-7d' : 'badge-30d'}">
               ${item.review_type === '7d' ? '7일차 복기' : '30일차 복기'} (${item.days_passed}일 경과)
@@ -65,14 +69,14 @@ const ReviewComponent = {
             <div class="review-trade-info">
               <div class="stock-title">
                 <span class="side-pill ${isBuy ? 'side-buy' : 'side-sell'}">${sideKr}</span>
-                <strong>${item.name}</strong> (${item.code})
+                <strong>${esc(item.name)}</strong> (${esc(item.code)})
               </div>
               <div class="trade-numbers">
                 ${item.qty}주 @ ${Number(item.price).toLocaleString()}원
               </div>
               <div class="trade-reason-box">
-                <span class="label">당시 기록된 이유:</span>
-                <span class="reason-val">${item.reason || '이유 미기재'}</span>
+                <span class="label">${reasonLabel}:</span>
+                <span class="reason-val">${item.reason ? esc(item.reason) : '이유 미기재'}</span>
               </div>
             </div>
 
@@ -86,12 +90,21 @@ const ReviewComponent = {
               <div class="market-diff ${changeClass}">
                 ${item.kospi_change > 0 ? '+' : ''}${item.kospi_change}%
               </div>
+              <span class="label">거래가 대비 종목 가격 변화</span>
+              <div class="market-value-row">
+                ${hasStock
+                  ? `<span class="then-val">${Number(item.price).toLocaleString()}원</span>
+                     <span class="arrow">&rarr;</span>
+                     <span class="now-val">${Number(item.stock_now).toLocaleString()}원 (${esc(item.stock_now_date)})</span>`
+                  : '<span class="text-muted">종목 가격을 불러오지 못했어요</span>'}
+              </div>
+              ${hasStock ? `<div class="market-diff ${stockClass}">${item.stock_change_vs_price > 0 ? '+' : ''}${item.stock_change_vs_price}%</div>` : ''}
             </div>
           </div>
 
           <div class="reflective-question-box">
             <div class="question-header">💭 다시 생각해 볼 질문</div>
-            <p class="question-text">${item.suggested_question}</p>
+            <p class="question-text">${esc(item.suggested_question)}</p>
           </div>
 
           <div class="review-actions">

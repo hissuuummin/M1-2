@@ -7,6 +7,17 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Login Screen (배포 환경에서 구글 로그인 전까지 앱을 가림) -->
+  <div id="login-screen" class="login-screen" style="display:none;">
+    <div class="login-card">
+      <div class="logo-icon">🪞</div>
+      <h2>투자거울</h2>
+      <p class="login-desc">내 매매 기록이 들어 있는 개인 비서라 허용된 계정만 들어올 수 있어요.</p>
+      <button id="btn-google-login" class="btn-primary">구글 계정으로 로그인</button>
+      <p id="login-message" class="login-message"></p>
+    </div>
+  </div>
+
   <!-- Cold Start Alert Banner (for Render free tier) -->
   <div id="cold-start-banner" class="cold-start-banner" style="display:none;"></div>
 

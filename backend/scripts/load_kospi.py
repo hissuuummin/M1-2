@@ -1,12 +1,18 @@
 """
-KOSPI 1-year Historical Data and Sample Trades Seeder Script.
-Seeds ~245 trading days of KOSPI index and realistic sample trades into Firestore (or Local DB).
+코스피 실제 종가 초기 적재 스크립트.
+
+FinanceDataReader(실패하면 금융위원회 시세 API)에서 최근 1년치 코스피 종가를 받아
+data 컬렉션(Firestore, 또는 로컬 개발 시 .local_db)에 넣습니다.
+예시 매매나 예시 대화는 만들지 않습니다.
+
+사용법 (backend 폴더에서):
+    python scripts/load_kospi.py              # 최근 365일, 빠진 날짜만 채움
+    python scripts/load_kospi.py --days 400   # 기간 변경
+    python scripts/load_kospi.py --fix-all    # 직접 입력(manual) 값까지 실제 종가로 덮어씀 (매매·메모는 유지)
 """
 
-from datetime import datetime, timedelta
-import math
+import argparse
 import os
-import random
 import sys
 
 # Ensure app package is importable
@@ -17,175 +23,52 @@ for p in [backend_dir, root_dir]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-try:
-    from app.core.firebase import get_firestore_client
-    from app.models.schemas import DataCreate, TradeCreate
-    from app.services.conversation_service import ConversationService
-    from app.services.data_service import DataService
-except ImportError:
-    from backend.app.core.firebase import get_firestore_client
-    from backend.app.models.schemas import DataCreate, TradeCreate
-    from backend.app.services.conversation_service import ConversationService
-    from backend.app.services.data_service import DataService
-
+from app.core.timeutil import today_kst  # noqa: E402
+from app.services.data_service import DataService  # noqa: E402
+from app.services.market_service import KOSPI_SYMBOL, MarketDataError, MarketService, get_series  # noqa: E402
 
 # Ensure UTF-8 output on Windows consoles
-if sys.stdout.encoding != 'utf-8':
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     try:
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
 
-def seed_data():
-    print("[INFO] Starting KOSPI 1-year Data & Sample Trades Seeding...")
-    db = get_firestore_client()
+def main() -> int:
+    parser = argparse.ArgumentParser(description="코스피 실제 종가 적재")
+    parser.add_argument("--days", type=int, default=365, help="오늘부터 며칠 전까지 받을지 (기본 365)")
+    parser.add_argument("--fix-all", action="store_true", help="직접 입력한 값까지 실제 종가로 덮어쓰기")
+    args = parser.parse_args()
 
-    # Generate 245 trading days (excluding weekends) ending today or recent date
-    end_date = datetime.now().date()
-    trading_dates = []
-
-    curr = end_date
-    while len(trading_dates) < 245:
-        if curr.weekday() < 5:  # Weekday
-            trading_dates.append(curr.strftime("%Y-%m-%d"))
-        curr -= timedelta(days=1)
-
-    trading_dates.reverse()  # Oldest to newest
-
-    # Realistic KOSPI historical simulation around 2500 ~ 2750 pts
-    base_val = 2520.0
-    random.seed(20241028)
-
-    sample_trades_dates = {
-        trading_dates[-80]: [
-            {
-                "id": "tr_init_01",
-                "side": "buy",
-                "name": "삼성전자",
-                "code": "005930",
-                "qty": 10,
-                "price": 71000.0,
-                "broker": "키움",
-                "reason": "성장성",
-                "reason_timing": "당시 기록"
-            }
-        ],
-        trading_dates[-45]: [
-            {
-                "id": "tr_init_02",
-                "side": "buy",
-                "name": "SK하이닉스",
-                "code": "000660",
-                "qty": 5,
-                "price": 165000.0,
-                "broker": "키움",
-                "reason": "시장 흐름",
-                "reason_timing": "당시 기록"
-            }
-        ],
-        trading_dates[-32]: [
-            {
-                "id": "tr_init_03",
-                "side": "buy",
-                "name": "카카오",
-                "code": "035720",
-                "qty": 15,
-                "price": 42000.0,
-                "broker": "신한",
-                "reason": "가격 하락",
-                "reason_timing": "당시 기록"
-            }
-        ],
-        trading_dates[-12]: [
-            {
-                "id": "tr_init_04",
-                "side": "sell",
-                "name": "삼성전자",
-                "code": "005930",
-                "qty": 5,
-                "price": 74500.0,
-                "broker": "키움",
-                "reason": "뉴스·이슈",
-                "reason_timing": "당시 기록"
-            }
-        ],
-        trading_dates[-3]: [
-            {
-                "id": "tr_init_05",
-                "side": "buy",
-                "name": "현대차",
-                "code": "005380",
-                "qty": 4,
-                "price": 245000.0,
-                "broker": "신한",
-                "reason": "성장성",
-                "reason_timing": "당시 기록"
-            }
-        ]
-    }
-
-    count = 0
-    val = base_val
-
-    for i, dt_str in enumerate(trading_dates):
-        # Subtle trend + random walk
-        drift = 0.4 * math.sin(i / 15.0)
-        noise = (random.random() - 0.495) * 22.0
-        val = max(2350.0, min(2850.0, round(val + drift + noise, 2)))
-
-        trades = []
-        memo = "일반 정규장 마감"
-        if dt_str in sample_trades_dates:
-            trades = sample_trades_dates[dt_str]
-            t = trades[0]
-            memo = f"{t['name']} {t['side']} {t['qty']}주 기록"
-
-        # Check existing before saving to handle idempotency
-        try:
-            DataService.create_record(
-                DataCreate(
-                    date=dt_str,
-                    value=val,
-                    memo=memo,
-                    trades=trades
-                ),
-                source="sync"
-            )
-            count += 1
-        except Exception:
-            # Already exists
-            pass
-
-    print(f"[OK] Successfully seeded {count} KOSPI daily records (Total trading days: {len(trading_dates)})")
-
-    # Seed an initial conversation session
+    print(f"[INFO] 최근 {args.days}일 코스피 종가를 불러옵니다...")
     try:
-        conversations = ConversationService.list_conversations()
-        if not conversations:
-            print("[INFO] Seeding sample conversation session...")
-            now_iso = datetime.now().isoformat()
-            ConversationService.create_conversation(
-                title="삼성전자 매수 및 시장 흐름 점검",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "최근 코스피 시장 분위기 어때?",
-                        "created_at": now_iso
-                    },
-                    {
-                        "role": "assistant",
-                        "content": "현재 코스피 지수는 최근 20영업일 동안 완만한 상승 추세를 유지하고 있습니다. 등록된 245영업일 중 1년 변동 범위의 약 64% 지점에 위치하고 있으며, 전체적인 지수 흐름은 안정적인 박스권 상단 돌파를 시도하고 있어요.",
-                        "created_at": now_iso
-                    }
-                ]
-            )
-            print("[OK] Initial conversation created.")
-    except Exception as e:
-        print(f"Conversation seed notice: {e}")
+        result = MarketService.sync_kospi(days_back=args.days)
+    except MarketDataError as e:
+        print(f"[ERROR] {e}")
+        print("        인터넷 연결, FinanceDataReader 설치, 또는 DATA_GO_KR_KEY 설정을 확인하세요.")
+        return 1
 
-    print("[DONE] Seeding completed successfully!")
+    print(f"[OK] 새로 넣은 거래일 {result['created']}일, 실제 종가로 고친 날 {result['updated']}일")
+
+    if args.fix_all:
+        from datetime import timedelta
+        today = today_kst()
+        series = get_series(KOSPI_SYMBOL, today - timedelta(days=args.days), today)
+        fixed = 0
+        for r in DataService.get_all_records():
+            actual = series.get(r["date"])
+            if actual is not None and abs(float(r.get("value", 0)) - actual) > 0.005:
+                DataService.set_market_value(r["date"], actual)
+                fixed += 1
+        print(f"[OK] --fix-all: 직접 입력 값 포함 {fixed}일을 실제 종가로 맞췄어요.")
+
+    total = len(DataService.get_all_records())
+    print(f"[DONE] 현재 저장된 데이터: {total}일")
+    if total < 100:
+        print("[WARN] 과제 최소 기준(100개)보다 적어요. --days 값을 늘려 보세요.")
+    return 0
 
 
 if __name__ == "__main__":
-    seed_data()
+    sys.exit(main())

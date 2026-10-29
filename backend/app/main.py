@@ -37,6 +37,8 @@ logger = logging.getLogger("investment_mirror.main")
 async def lifespan(app: FastAPI):
     # Startup: initialize Firestore & check readiness
     logger.info("Starting 투자거울 (Investment Mirror) API Service...")
+    if settings.dev_mode_effective:
+        logger.warning("DEV_MODE is ON: all API endpoints are accessible without login. Use only on your own computer.")
     db = get_firestore_client()
     if is_mock_firestore():
         logger.info("Running in Mock Firestore mode for local development/testing.")
@@ -78,26 +80,42 @@ app.include_router(review.router, prefix="/api")
 app.include_router(stocks.router, prefix="/api")
 app.include_router(trades.router, prefix="/api")
 
-# Static files and Frontend Single Page App serving
-_frontend_dir = os.path.join(_root_dir, "frontend")
-if not os.path.exists(_frontend_dir):
-    _frontend_dir = os.path.join(_backend_dir, "..", "frontend")
+# Static files and Frontend Single Page App serving (로컬 실행 편의용. 운영 프론트는 Vercel)
+_frontend_dir = os.path.realpath(os.path.join(_root_dir, "frontend"))
 
-if os.path.exists(_frontend_dir):
-    # Mount sub-components and assets
-    app.mount("/components", StaticFiles(directory=os.path.join(_frontend_dir, "components")), name="components")
 
+def _safe_frontend_path(filename: str):
+    """frontend 폴더 안의 파일만 돌려줍니다. '..' 등으로 폴더 밖을 가리키면 None."""
+    target = os.path.realpath(os.path.join(_frontend_dir, filename))
+    try:
+        inside = os.path.commonpath([_frontend_dir, target]) == _frontend_dir
+    except ValueError:  # Windows에서 드라이브가 다른 경우
+        inside = False
+    if not inside:
+        return None
+    # 숨김 파일(.env 등)은 frontend 안에 있어도 내려주지 않습니다.
+    rel_parts = os.path.relpath(target, _frontend_dir).split(os.sep)
+    if any(part.startswith(".") for part in rel_parts):
+        return None
+    return target
+
+
+if os.path.isdir(_frontend_dir):
     @app.get("/", include_in_schema=False)
     def serve_frontend_root():
-        index_file = os.path.join(_frontend_dir, "index.html")
-        return FileResponse(index_file)
+        return FileResponse(os.path.join(_frontend_dir, "index.html"))
 
     @app.get("/{filename:path}", include_in_schema=False)
     def serve_frontend_files(filename: str):
-        target = os.path.join(_frontend_dir, filename)
+        # 없는 API 경로는 index.html이 아니라 404 JSON으로 응답
+        if filename == "api" or filename.startswith("api/"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+        target = _safe_frontend_path(filename)
+        if target is None:
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
         if os.path.isfile(target):
             return FileResponse(target)
-        # Fallback for SPA routing to index.html
         return FileResponse(os.path.join(_frontend_dir, "index.html"))
 else:
     @app.get("/", include_in_schema=False)
@@ -108,7 +126,7 @@ else:
 # Global Exception Handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled Exception on {request.url.path}: {exc}", exc_info=True)
+    logger.error("Unhandled Exception on %s", request.url.path, exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "서버 내부 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}
@@ -117,4 +135,4 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)

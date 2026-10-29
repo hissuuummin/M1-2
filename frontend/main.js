@@ -11,9 +11,6 @@ const Main = {
     const theme = window.store.getState().theme;
     document.documentElement.setAttribute('data-theme', theme);
 
-    // Initialize Auth
-    window.Auth.init();
-
     // Bind Global Header & Nav Events
     this.bindGlobalEvents();
 
@@ -22,14 +19,55 @@ const Main = {
       this.updateHeader(state);
     });
 
-    // Check backend health & cold-start
-    await this.checkServerStatus();
+    // 1) 서버 깨우기 + 인증 방식 확인 (콜드스타트 안내 배너 표시)
+    const health = await this.checkServerStatus();
+    if (!health) {
+      this.showLogin('서버에 연결하지 못했어요. 잠시 후 새로고침해 주세요.', false);
+      return;
+    }
+    window.store.setState({ aiEnabled: !!health.ai_enabled });
 
-    // Initial data refresh
+    // 2) 로그인 확인 (배포: 구글 로그인 / 로컬 DEV_MODE: 바로 사용)
+    const loggedIn = await window.Auth.init(health.auth_mode);
+    if (!loggedIn) {
+      this.showLogin();
+      return;
+    }
+    await this.startApp();
+  },
+
+  async startApp() {
+    this.hideLogin();
     await this.refreshData();
-
-    // Render initial tab (Chat)
     this.switchTab('chat');
+  },
+
+  showLogin(message = '', showButton = true) {
+    const overlay = document.getElementById('login-screen');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    const msg = overlay.querySelector('#login-message');
+    if (msg) msg.textContent = message;
+    const btn = overlay.querySelector('#btn-google-login');
+    if (btn) {
+      btn.style.display = showButton ? 'inline-flex' : 'none';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          await window.Auth.loginWithGoogle();
+          await this.startApp();
+        } catch (err) {
+          if (msg) msg.textContent = `로그인하지 못했어요: ${err.message}`;
+        } finally {
+          btn.disabled = false;
+        }
+      };
+    }
+  },
+
+  hideLogin() {
+    const overlay = document.getElementById('login-screen');
+    if (overlay) overlay.style.display = 'none';
   },
 
   bindGlobalEvents() {
@@ -74,22 +112,19 @@ const Main = {
   },
 
   async checkServerStatus() {
+    // Render 무료 서버는 잠들어 있으면 깨어나는 데 1분 가까이 걸릴 수 있어 여러 번 다시 시도합니다.
     window.store.setState({ serverStatus: 'waking' });
-    try {
-      await window.Api.checkHealth();
-      window.store.setState({ serverStatus: 'online' });
-    } catch (e) {
-      console.warn("Backend still waking up or unreachable:", e);
-      // Retry in 3 seconds if waking
-      setTimeout(async () => {
-        try {
-          await window.Api.checkHealth();
-          window.store.setState({ serverStatus: 'online' });
-        } catch (_) {
-          window.store.setState({ serverStatus: 'offline' });
-        }
-      }, 3000);
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      try {
+        const health = await window.Api.checkHealth();
+        window.store.setState({ serverStatus: 'online' });
+        return health;
+      } catch (e) {
+        await new Promise((r) => setTimeout(r, 5000));
+      }
     }
+    window.store.setState({ serverStatus: 'offline' });
+    return null;
   },
 
   async refreshData() {
@@ -186,6 +221,7 @@ const Main = {
         role: 'assistant',
         content: res.reply,
         sources: res.sources || [],
+        mode: res.mode || 'ai',
         created_at: new Date().toISOString()
       });
 
@@ -226,7 +262,7 @@ const Main = {
       const updatedMsgs = [...window.store.getState().messages];
       updatedMsgs.push({
         role: 'assistant',
-        content: `체결 내역 캡처에서 ${candidates.length}건의 매매를 인식했어요! 아래 기록 카드의 수량과 단가를 확인하신 후 [기록 저장하기]를 눌러주세요.`,
+        content: `체결 내역 캡처에서 ${candidates.length}건을 읽었어요. AI가 읽은 값이라 틀릴 수 있으니, 아래 카드의 날짜·종목·수량·단가를 꼭 확인한 뒤 [기록 저장하기]를 눌러 주세요.`,
         created_at: new Date().toISOString()
       });
 

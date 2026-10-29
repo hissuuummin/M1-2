@@ -149,13 +149,14 @@ def get_firestore_client():
             cred = credentials.Certificate(cert_data)
             logger.info("Loaded Firebase credentials from FIREBASE_SERVICE_ACCOUNT_JSON")
         except Exception as e:
-            logger.error(f"Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON: {e}")
+            # 키 내용이 로그에 찍히지 않도록 오류 종류만 남깁니다.
+            logger.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON (%s)", type(e).__name__)
     elif settings.FIREBASE_CREDENTIALS_PATH and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
         try:
             cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
-            logger.info(f"Loaded Firebase credentials from file: {settings.FIREBASE_CREDENTIALS_PATH}")
+            logger.info("Loaded Firebase credentials from file")
         except Exception as e:
-            logger.error(f"Failed to parse credentials file: {e}")
+            logger.error("Failed to parse credentials file (%s)", type(e).__name__)
 
     if cred is not None:
         try:
@@ -166,13 +167,30 @@ def get_firestore_client():
             logger.info("Firestore client initialized successfully with real Firebase")
             return _firestore_client
         except Exception as e:
-            logger.error(f"Error initializing Firebase Firestore: {e}")
+            logger.error("Error initializing Firebase Firestore (%s)", type(e).__name__)
 
-    # Fallback to local persistent JSON mock
-    logger.info("Initializing Local Firestore Store (Persistent JSON for local dev/testing)")
-    _firestore_client = MockFirestoreClient()
+    # 운영 환경에서는 로컬 JSON 저장소로 조용히 넘어가지 않습니다.
+    # (Render 디스크는 재시작 때 지워져서 매매 기록이 사라지기 때문)
+    if settings.is_production:
+        raise RuntimeError(
+            "Firebase 서비스 계정 설정을 읽지 못했습니다. "
+            "FIREBASE_SERVICE_ACCOUNT_JSON 환경 변수를 확인하세요."
+        )
+
+    logger.warning(
+        "Firebase credentials not found. Using local JSON store at '%s' (development only).",
+        settings.LOCAL_DB_DIR
+    )
+    _firestore_client = MockFirestoreClient(root_dir=settings.LOCAL_DB_DIR)
     _is_mock = True
     return _firestore_client
+
+
+def reset_firestore_client_for_tests():
+    """테스트에서 저장소 위치를 바꿀 때만 사용합니다."""
+    global _firestore_client, _is_mock
+    _firestore_client = None
+    _is_mock = False
 
 
 def is_mock_firestore() -> bool:
